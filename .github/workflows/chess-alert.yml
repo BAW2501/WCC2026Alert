@@ -1,0 +1,50 @@
+name: chess-alert
+
+on:
+  schedule:
+    # Games start 14:00 UTC (15:00 Geneva) and can run ~7h. Match window: Nov 24 - Dec 13.
+    # The script exits in seconds when no round is live (rest days, tiebreak gaps).
+    - cron: "*/5 14-21 24-30 11 *"
+    - cron: "*/5 14-21 1-13 12 *"
+  workflow_dispatch:   # manual run button, for testing
+
+concurrency:
+  group: chess-alert
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install chess
+
+      # Remembers which alerts were already sent. Restore/save are separate steps because
+      # a plain actions/cache only saves when the job SUCCEEDS, and an alert is a failure.
+      - uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: chess-state-${{ github.run_id }}
+          restore-keys: chess-state-
+
+      # Exits 1 (job fails -> GitHub emails you) only when a position is interesting.
+      - name: Check live game
+        env:
+          EVAL_THRESHOLD:     ${{ vars.EVAL_THRESHOLD || '1.5' }}
+          MATERIAL_THRESHOLD: ${{ vars.MATERIAL_THRESHOLD || '2' }}
+        run: python scripts/chess_alert.py
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: state
+          key: chess-state-${{ github.run_id }}
